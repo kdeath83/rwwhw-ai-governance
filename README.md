@@ -1,8 +1,17 @@
 # RWWHW AI Governance Framework for Amazon Bedrock AgentCore
 
-> **What** was it trying to do? **Who** owned it? **How** did you stop/recover? **What** does the evidence show?
+Inspired by Raymond Tang: https://www.linkedin.com/posts/raywjtang_if-your-ai-made-a-bad-decision-tomorrow-share-7456159867247038464-dqih/
 
-A production-ready AI governance solution **native to AWS Bedrock AgentCore**. Answers all four questions in 30 seconds during an AI incident by leveraging the actual Bedrock AgentCore services — Registry, Memory, Runtime, and Guardrails.
+If your AI made a bad decision tomorrow, could you immediately answer: 
+- what was it trying to do, 
+- what rule failed, who owned it, 
+- how you stopped (and / or recovered from) it, and 
+- what the evidence shows?
+
+If yes, the control system exists.
+If no, then it's theatre. 🎭
+
+So here we have a production-ready AI governance solution **native to AWS Bedrock AgentCore**. Answers all four questions in 30 seconds during an AI incident by leveraging the actual Bedrock AgentCore services — Registry, Memory, Runtime, and Guardrails.
 
 ## 🚀 One-Click Deploy
 
