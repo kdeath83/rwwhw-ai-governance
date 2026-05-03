@@ -1,0 +1,52 @@
+# Node.js
+node_modules/
+package-lock.json
+npm-debug.log
+yarn-error.log
+
+# CDK
+.cdk.staging/
+cdk.out/
+cdk.context.json
+*.js
+!jest.config.js
+*.d.ts
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Lambda build artifacts
+lambda/*.zip
+data/*.zip
+
+# Evidence/sensitive (should never be committed)
+*.evidence.json
+*.audit.log

@@ -1,0 +1,24 @@
+{
+  "name": "rwwhw-ai-governance-cdk",
+  "version": "1.0.0",
+  "description": "CDK implementation of RWWHW AI Governance Framework",
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "cdk": "cdk",
+    "bootstrap": "cdk bootstrap",
+    "deploy": "cdk deploy",
+    "destroy": "cdk destroy",
+    "synth": "cdk synth"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.140.0",
+    "constructs": "^10.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "20.12.0",
+    "aws-cdk": "^2.140.0",
+    "typescript": "^5.4.0"
+  }
+}
