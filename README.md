@@ -1,123 +1,350 @@
-# RWWHW AI Governance Framework
+# RWWHW AI Governance Framework for Amazon Bedrock AgentCore
 
 > **What** was it trying to do? **Who** owned it? **How** did you stop/recover? **What** does the evidence show?
 
-A production-ready AWS-native AI governance solution built on Bedrock AgentCore, designed to answer these four critical questions in 30 seconds during an AI incident.
+A production-ready AI governance solution **native to AWS Bedrock AgentCore**. Answers all four questions in 30 seconds during an AI incident by leveraging the actual Bedrock AgentCore services — Registry, Memory, Runtime, and Guardrails.
+
+## Prerequisites
+
+- AWS Account with Bedrock AgentCore access (see [enrollment](#enrollment))
+- AWS CLI v2+ configured
+- For CDK: Node.js 18+, AWS CDK v2
+- For Terraform: Terraform 1.5+
 
 ## The RWWHW Framework
 
-| Question | Why It Matters | AWS Service |
-|----------|---------------|-------------|
-| **What** was it trying to do? | Intent, reasoning, decision path | Bedrock AgentCore Memory + Session Trace |
-| **Who** owned it, what rule failed? | Accountability, governance, compliance | AgentCore Registry + Guardrails |
-| **How** did you stop/recover? | Operational resilience, circuit breakers | AgentCore Runtime + Step Functions |
-| **What** does the evidence show? | Immutable audit trail, legal proof | S3 Object Lock + CloudTrail + Athena |
+| Question | Why It Matters | Bedrock AgentCore Service |
+|----------|---------------|---------------------------|
+| **What** was it trying to do? | Intent, reasoning, decision path | [AgentCore Memory](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/memory.html) — Session traces & reasoning chains |
+| **Who** owned it, what rule failed? | Accountability, governance | [Agent Registry](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/registry.html) — Ownership metadata + [Guardrails](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html) |
+| **How** did you stop/recover? | Operational resilience | [AgentCore Runtime](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime.html) — Circuit breakers + Step Functions |
+| **What** does the evidence show? | Immutable audit trail | S3 Object Lock + [CloudTrail](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/logging-using-cloudtrail.html) |
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Bedrock AgentCore                        │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │   Memory     │  │   Registry   │  │   Runtime    │      │
-│  │  (What)      │  │  (Who)       │  │  (How)       │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-└────────────────────┬────────────────────────────────────────┘
-                     │
-    ┌────────────────┼────────────────┐
-    │                │                │
-┌───▼────┐     ┌────▼────┐     ┌────▼────┐
-│Guardrails│     │EventBridge│     │Step Functions│
-│(Rules)  │     │(Triggers) │     │(Human Review)│
-└───┬────┘     └────┬────┘     └────┬────┘
-    │               │               │
-┌───▼───────────────▼───────────────▼────┐
-│           S3 + DynamoDB                 │
-│     (What Evidence - 7 years)            │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                     Amazon Bedrock AgentCore                         │
+│                                                                      │
+│  ┌────────────────┐  ┌──────────────┐  ┌──────────────┐  ┌─────────┐  │
+│  │   Memory       │  │  Registry    │  │   Runtime    │  │Guardrails│ │
+│  │  (What)        │  │  (Who)       │  │  (How)       │  │ (Rules)  │ │
+│  │                │  │              │  │              │  │          │ │
+│  │ • Sessions     │  │ • Agents     │  │ • Execution  │  │ • Blocks │ │
+│  │ • Traces       │  │ • Tools      │  │ • Monitoring │  │ • Traces │ │
+│  │ • Reasoning    │  │ • Ownership  │  │ • Circuit    │  │          │ │
+│  └────────────────┘  └──────────────┘  └──────────────┘  └─────────┘  │
+│           │                 │                 │              │         │
+│           └─────────────────┴─────────────────┴──────────────┘         │
+│                              │                                       │
+└──────────────────────────────┼───────────────────────────────────────┘
+                               │
+                    ┌──────────▼──────────┐
+                    │   RWWHW Governance  │
+                    │      Layer          │
+                    ├─────────────────────┤
+                    │ • Evidence S3       │
+                    │ • CloudWatch        │
+                    │ • Step Functions    │
+                    │ • SNS Alerts        │
+                    └─────────────────────┘
 ```
 
 ## Quick Start
 
-### Option 1: Terraform
+### Step 1: Enable Bedrock AgentCore (One-time)
+
+Bedrock AgentCore requires account enrollment. Choose your region:
+
+```bash
+# Check if AgentCore is available in your region
+aws bedrock-agentcore list-registries --region us-east-1
+
+# If "AccessDeniedException", request access via:
+# AWS Console → Amazon Bedrock → AgentCore → "Get Started"
+```
+
+Supported regions: `us-east-1`, `us-west-2`, `eu-west-1`, `ap-southeast-2` (see [docs](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/regions.html))
+
+### Step 2: Deploy RWWHW Governance Layer
+
+#### Option A: Terraform
 
 ```bash
 cd terraform/
+
+# Initialize
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your settings
+
 terraform init
-terraform plan -var="environment=production"
+terraform plan
 terraform apply
+
+# Output will show:
+# - Evidence bucket name
+# - Registry integration role ARN
+# - Dashboard URL
 ```
 
-### Option 2: CDK
+#### Option B: CDK
 
 ```bash
 cd cdk/
 npm install
-npx cdk bootstrap
+
+# Bootstrap CDK (first time only)
+npx cdk bootstrap aws://ACCOUNT/REGION
+
+# Deploy
 npx cdk deploy
+
+# Outputs will show:
+# - RwwhwAiGovernanceStack.EvidenceBucket
+# - RwwhwAiGovernanceStack.DashboardUrl
 ```
 
-## What Gets Deployed
+### Step 3: Register Your Agents (Who)
 
-### 1. AgentCore Registry (Who)
-- DynamoDB table for agent ownership and governance
-- Required fields: technical_owner, business_owner, risk_owner
-- Guardrail associations and approval workflows
+```bash
+# Use the provided registration script
+python scripts/register_agent.py \
+  --agent-name "loan-assistant-v1" \
+  --technical-owner "platform-team@company.com" \
+  --business-owner "lending-team@company.com" \
+  --risk-owner "cro@company.com" \
+  --risk-classification "HIGH" \
+  --guardrail-id "gr-xxxxx"
 
-### 2. WWHW Audit System (What Evidence)
-- S3 bucket with Object Lock (7-year retention)
-- CloudWatch Logs for session traces
-- Athena tables for compliance queries
-- CloudTrail integration for API auditing
+# Verify registration
+aws bedrock-agentcore get-registry-record \
+  --registry-name "rwwhw-ai-governance" \
+  --record-id "loan-assistant-v1"
+```
 
-### 3. Circuit Breakers (How)
-- Lambda functions for runtime monitoring
-- EventBridge rules for anomaly detection
-- Step Functions for human review workflows
-- SNS topics for incident alerting
+### Step 4: Configure Session Memory (What)
 
-### 4. Dashboard (30-Second Answers)
-- CloudWatch dashboard with 4 WWHW sections
-- Real-time incident response view
-- One-click evidence package generation
+When creating agents via Bedrock Console or API, enable AgentCore Memory:
+
+```python
+import boto3
+
+bedrock = boto3.client('bedrock-agent')
+
+bedrock.create_agent(
+    agentName='loan-assistant-v1',
+    description='Loan approval assistant with governance',
+    idleSessionTTLInSeconds=1800,
+    # Enable AgentCore Memory for session traces
+    memoryConfiguration={
+        'enabled': True,
+        'storageDuration': 2555  # 7 years for compliance
+    },
+    # Attach Guardrails for "Who" tracking
+    guardrailConfiguration={
+        'guardrailIdentifier': 'gr-xxxxx',
+        'guardrailVersion': 'DRAFT'
+    }
+)
+```
+
+### Step 5: Runtime Monitoring (How)
+
+The deployed Lambda functions automatically monitor your Bedrock AgentCore Runtime:
+
+```python
+# Circuit breaker monitors Bedrock Runtime metrics
+def check_runtime_health(agent_id):
+    """
+    Monitors Bedrock AgentCore Runtime via CloudWatch:
+    - Invocation errors
+    - Latency spikes
+    - Guardrail violations
+    """
+    cloudwatch = boto3.client('cloudwatch')
+    
+    # Query Bedrock Runtime metrics
+    metrics = cloudwatch.get_metric_statistics(
+        Namespace='AWS/Bedrock/AgentCore',
+        MetricName='RuntimeErrors',
+        Dimensions=[
+            {'Name': 'AgentId', 'Value': agent_id}
+        ],
+        StartTime=datetime.utcnow() - timedelta(minutes=5),
+        EndTime=datetime.utcnow(),
+        Period=60,
+        Statistics=['Sum']
+    )
+    
+    if metrics['Datapoints'] and metrics['Datapoints'][0]['Sum'] > threshold:
+        # Trigger circuit breaker via AgentCore Runtime API
+        bedrock_runtime = boto3.client('bedrock-agent-runtime')
+        bedrock_runtime.update_agent(
+            agentId=agent_id,
+            agentStatus='DISABLED'
+        )
+```
+
+### Step 6: View Dashboard (30-Second Answers)
+
+Open the CloudWatch Dashboard URL from deployment outputs:
+
+```bash
+# Get dashboard URL
+terraform output dashboard_url
+# or
+aws cloudwatch get-dashboard --dashboard-name rwwhw-ai-governance-governance
+```
+
+Dashboard queries Bedrock AgentCore native log groups:
+- `/aws/bedrock/agentcore/sessions` — What
+- `/aws/bedrock/guardrails` — Who
+- `/aws/bedrock/agentcore/runtime` — How
 
 ## Example: Answer All 4 Questions
 
 ```python
 import boto3
-from rwwhw import generate_incident_report
+from scripts.rwwhw_evidence import generate_incident_report
 
 # After an AI incident
 report = generate_incident_report(
     session_id="loan-approval-2026-05-02-001",
-    timestamp="2026-05-02T14:32:11Z"
+    agent_id="loan-assistant-v1"
 )
 
-print(report.what)      # "Assessing $500k loan, debt ratio 4.2x exceeded 4.0x policy"
-print(report.who)      # "Credit Risk Committee owns rule, CRO notified"
-print(report.how)      # "Guardrail blocked at 14:32:11, human approved override at 14:47:33"
-print(report.evidence) # "SHA256 verified, Object Lock until 2033"
+print("=" * 60)
+print(f"INCIDENT: {report.incident_id}")
+print("=" * 60)
+
+# RWWHW #1: What (from AgentCore Memory)
+print(f"\n🎯 WHAT: {report.what}")
+# Output: "Assessing $500k loan, debt ratio 4.2x exceeded 4.0x policy"
+# Source: Bedrock AgentCore Memory session trace
+
+# RWWHW #2: Who (from Agent Registry + Guardrails)
+print(f"\n👤 WHO: {report.who}")
+# Output: "Credit Risk Committee owns rule, CRO notified"
+# Source: AWS Agent Registry ownership + Guardrail trace
+
+# RWWHW #3: How (from AgentCore Runtime)
+print(f"\n🛡️ HOW: {report.how}")
+# Output: "Guardrail blocked at 14:32:11, human approved override at 14:47:33"
+# Source: Bedrock AgentCore Runtime circuit breaker + Step Functions
+
+# RWWHW #4: Evidence (from S3 + CloudTrail)
+print(f"\n📁 EVIDENCE: {report.evidence}")
+# Output: "s3://rwwhw-evidence/2026/05/02/incident-001/evidence.json"
+#         "SHA256: a3f5d2... | CloudTrail: ct-xxx"
+print(f"   SHA256: {report.integrity_hash}")
+print(f"   Retention: 7 years (S3 Object Lock until 2033)")
+```
+
+## What Gets Deployed
+
+### 1. AWS Agent Registry Integration (Who)
+- **Registry**: `rwwhw-ai-governance` (created if not exists)
+- **IAM Role**: Allows Lambda to query registry records
+- **Metadata**: Technical owner, business owner, risk owner, guardrail associations
+
+### 2. Bedrock AgentCore Memory Integration (What)
+- **No custom infra** — uses native Bedrock AgentCore Memory service
+- **Log Groups**: `/aws/bedrock/agentcore/sessions` (7-year retention)
+- **Dashboard queries**: Native Memory session traces
+
+### 3. Bedrock AgentCore Runtime Monitoring (How)
+- **Circuit Breaker Lambda**: Monitors Runtime metrics, disables agents on anomalies
+- **Step Functions**: Human approval workflows
+- **EventBridge**: Triggers on Guardrail violations
+
+### 4. Evidence System (What Evidence)
+- **S3 Bucket**: Object Lock enabled, 7-year compliance retention
+- **CloudTrail**: All Bedrock AgentCore API calls logged
+- **Evidence Generator**: Packages Memory + Registry + Runtime data with SHA256
+
+## IAM Permissions Required
+
+Your deployment role needs:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:GetAgent",
+        "bedrock:ListAgents",
+        "bedrock:UpdateAgent",
+        "bedrock:InvokeAgent",
+        "bedrock-agentcore:*",
+        "bedrock-agentcore-runtime:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:GetGuardrail",
+        "bedrock:ListGuardrails",
+        "bedrock:ApplyGuardrail"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
 ```
 
 ## Cost Estimate
 
-| Component | Monthly Cost |
-|-----------|--------------|
-| Bedrock AgentCore | ~$50-100 |
-| DynamoDB | ~$10-20 |
-| S3 (7-year retention) | ~$5-15 |
-| CloudWatch | ~$10-30 |
-| **Total** | **~$75-165** |
+| Component | Monthly Cost | Notes |
+|-----------|--------------|-------|
+| Bedrock AgentCore Runtime | ~$50-150 | Based on agent invocations |
+| Bedrock AgentCore Memory | ~$10-30 | Session storage |
+| AWS Agent Registry | $0 | No charge for registry |
+| Guardrails | ~$5-15 | Per 1,000 processed text units |
+| S3 (7-year retention) | ~$5-15 | Evidence storage |
+| CloudWatch | ~$10-30 | Logs + Dashboard |
+| **Total** | **~$80-240** | |
+
+## Troubleshooting
+
+### "AgentCore not enabled in region"
+```bash
+# Check available regions
+aws bedrock-agentcore list-registries --region us-east-1
+
+# If error, request access:
+# AWS Console → Amazon Bedrock → AgentCore → "Get Started"
+```
+
+### "AccessDeniedException: bedrock-agentcore:GetRegistryRecord"
+```bash
+# Add AgentCore permissions to your role
+aws iam attach-role-policy \
+  --role-name YourDeploymentRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonBedrockAgentCoreFullAccess
+```
+
+### Dashboard shows no data
+```bash
+# Verify Bedrock AgentCore logging is enabled
+aws bedrock get-agent --agent-id your-agent-id
+# Check: memoryConfiguration.enabled == true
+```
+
+## Documentation
+
+- [Bedrock AgentCore Overview](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/what-is-bedrock-agentcore.html)
+- [Agent Registry](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/registry.html)
+- [AgentCore Memory](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/memory.html)
+- [AgentCore Runtime](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime.html)
+- [Guardrails](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html)
 
 ## License
 
 MIT License — for FSI/Regulated industry use.
 
-## Source
+---
 
-Built on AWS Bedrock AgentCore — native AWS AI governance platform.
-
-
-# History
-
-Originally created as WWHW AI Governance Framework, renamed to RWWHW AI Governance Framework.
+**Built natively on AWS Bedrock AgentCore** — Not a wrapper, not an abstraction. Uses the actual services.
