@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WWHW AI Governance Framework - Evidence Generator
+RWWHW AI Governance Framework - Evidence Generator
 Generates tamper-proof evidence packages for AI incidents
 """
 
@@ -11,7 +11,7 @@ from datetime import datetime
 
 def handler(event, context):
     """
-    Generate WWHW evidence package for an AI incident
+    Generate RWWHW evidence package for an AI incident
     
     Expected event format:
     {
@@ -31,8 +31,8 @@ def handler(event, context):
     s3 = boto3.client('s3')
     cloudwatch = boto3.client('logs')
     
-    # WWHW #1: What Was It Trying To Do?
-    session_memory = dynamodb.Table('wwhw-ai-governance-session-memory')
+    # RWWHW #1: What Was It Trying To Do?
+    session_memory = dynamodb.Table('rwwhw-ai-governance-session-memory')
     session_response = session_memory.get_item(
         Key={'session_id': session_id}
     )
@@ -46,8 +46,8 @@ def handler(event, context):
         'input_context': session_data.get('input_context')
     }
     
-    # WWHW #2: Who Owned It, What Rule Failed?
-    registry = dynamodb.Table('wwhw-ai-governance-agent-registry')
+    # RWWHW #2: Who Owned It, What Rule Failed?
+    registry = dynamodb.Table('rwwhw-ai-governance-agent-registry')
     registry_response = registry.get_item(
         Key={'agent_id': agent_id}
     )
@@ -63,7 +63,7 @@ def handler(event, context):
         'approval_reference': agent_data.get('approval_workflow_reference')
     }
     
-    # WWHW #3: How We Stopped & Recovered
+    # RWWHW #3: How We Stopped & Recovered
     # Query CloudWatch for circuit breaker events
     how_evidence = {
         'stop_mechanism': event.get('stop_mechanism', 'guardrail_block'),
@@ -74,9 +74,9 @@ def handler(event, context):
         'business_owner_approval': event.get('business_owner_approval')
     }
     
-    # WWHW #4: What Does the Evidence Show? (Immutable)
+    # RWWHW #4: What Does the Evidence Show? (Immutable)
     evidence_package = {
-        'wwhw_framework_version': '1.0.0',
+        'rwwhw_framework_version': '1.0.0',
         'incident_id': incident_id,
         'generated_at': datetime.utcnow().isoformat(),
         'retention_until': '2033-05-02T00:00:00Z',  # 7 years
@@ -96,7 +96,7 @@ def handler(event, context):
     }
     
     # Store in S3 with Object Lock
-    bucket = 'wwhw-ai-governance-evidence'  # From environment variable
+    bucket = 'rwwhw-ai-governance-evidence'  # From environment variable
     key = f"{datetime.utcnow().strftime('%Y/%m/%d')}/{incident_id}/evidence-package.json"
     
     s3.put_object(
@@ -108,7 +108,7 @@ def handler(event, context):
         Metadata={
             'incident-id': incident_id,
             'agent-id': agent_id,
-            'wwhw-framework': 'true'
+            'rwwhw-framework': 'true'
         }
     )
     
@@ -127,4 +127,3 @@ def handler(event, context):
             }
         })
     }
-

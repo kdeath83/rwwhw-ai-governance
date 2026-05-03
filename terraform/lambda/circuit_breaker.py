@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WWHW AI Governance Framework - Circuit Breaker
+RWWHW AI Governance Framework - Circuit Breaker
 Monitors AI agents and stops them when anomalies detected
 """
 

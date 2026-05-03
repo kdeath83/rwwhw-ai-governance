@@ -1,6 +1,6 @@
 output "evidence_bucket" {
-  description = "S3 bucket for WWHW evidence (7-year retention)"
-  value       = aws_s3_bucket.wwhw_evidence.id
+  description = "S3 bucket for RWWHW evidence (7-year retention)"
+  value       = aws_s3_bucket.rwwhw_evidence.id
 }
 
 output "agent_registry_table" {
@@ -30,7 +30,7 @@ output "evidence_generator_lambda" {
 
 output "dashboard_url" {
   description = "CloudWatch Dashboard URL for 30-second incident response"
-  value       = "https://${var.aws_region}.console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards:name=${aws_cloudwatch_dashboard.wwhw.dashboard_name}"
+  value       = "https://${var.aws_region}.console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards:name=${aws_cloudwatch_dashboard.rwwhw.dashboard_name}"
 }
 
 output "incident_alert_topic" {

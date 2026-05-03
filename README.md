@@ -4,7 +4,7 @@
 
 A production-ready AWS-native AI governance solution built on Bedrock AgentCore, designed to answer these four critical questions in 30 seconds during an AI incident.
 
-## The WWHW Framework
+## The RWWHW Framework
 
 | Question | Why It Matters | AWS Service |
 |----------|---------------|-------------|
