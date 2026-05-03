@@ -1,0 +1,727 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  RWWHW AI Governance Framework for Amazon Bedrock AgentCore v2.0.0
+  Deploys governance layer: Evidence S3, Lambda circuit breakers, 
+  Step Functions workflows, CloudWatch dashboard, IAM roles for Bedrock AgentCore.
+  
+  One-click deploy: https://github.com/kdeath83/rwwhw-ai-governance
+
+Parameters:
+  RegistryName:
+    Type: String
+    Default: rwwhw-ai-governance
+    Description: AWS Agent Registry name for agent governance
+    MinLength: 1
+    MaxLength: 64
+    AllowedPattern: '^[a-z0-9-]+$'
+    ConstraintDescription: Must contain only lowercase letters, numbers, and hyphens
+
+  RetentionDays:
+    Type: Number
+    Default: 2555
+    Description: Evidence retention period in days (default 7 years for compliance)
+    MinValue: 1
+    MaxValue: 36500
+
+  EnableDashboard:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable CloudWatch dashboard for 30-second incident response
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "RWWHW Configuration"
+        Parameters:
+          - RegistryName
+          - RetentionDays
+          - EnableDashboard
+    ParameterLabels:
+      RegistryName:
+        default: "Agent Registry Name"
+      RetentionDays:
+        default: "Evidence Retention (days)"
+      EnableDashboard:
+        default: "Enable Dashboard"
+
+Resources:
+  # ═══════════════════════════════════════════════════════════
+  # S3 Bucket for Evidence (7-year Object Lock retention)
+  # ═══════════════════════════════════════════════════════════
+  EvidenceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${RegistryName}-evidence-${AWS::AccountId}-${AWS::Region}'
+      VersioningConfiguration:
+        Status: Enabled
+      ObjectLockEnabled: true
+      ObjectLockConfiguration:
+        Rule:
+          DefaultRetention:
+            Mode: COMPLIANCE
+            Days: !Ref RetentionDays
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Framework
+          Value: RWWHW
+        - Key: Purpose
+          Value: Evidence-Audit
+        - Key: RetentionYears
+          Value: '7'
+
+  EvidenceBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref EvidenceBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyDeleteLockedObjects
+            Effect: Deny
+            Principal: '*'
+            Action: s3:DeleteObject
+            Resource: !Sub '${EvidenceBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                s3:object-lock-mode: COMPLIANCE
+          - Sid: AllowLambdaEvidenceWrite
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt LambdaRole.Arn
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+            Resource: !Sub '${EvidenceBucket.Arn}/evidence/*'
+
+  # ═══════════════════════════════════════════════════════════
+  # CloudWatch Log Groups for Bedrock AgentCore Integration
+  # ═══════════════════════════════════════════════════════════
+  AgentCoreRuntimeLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/bedrock/agentcore/runtime
+      RetentionInDays: !Ref RetentionDays
+      Tags:
+        - Key: RWWHW
+          Value: How
+        - Key: Framework
+          Value: Resilience
+        - Key: Service
+          Value: BedrockAgentCore
+
+  GuardrailsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/bedrock/guardrails
+      RetentionInDays: !Ref RetentionDays
+      Tags:
+        - Key: RWWHW
+          Value: Who
+        - Key: Framework
+          Value: Governance
+        - Key: Service
+          Value: BedrockGuardrails
+
+  AgentCoreMemoryLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/bedrock/agentcore/sessions
+      RetentionInDays: !Ref RetentionDays
+      Tags:
+        - Key: RWWHW
+          Value: What
+        - Key: Framework
+          Value: Governance
+        - Key: Service
+          Value: BedrockAgentCoreMemory
+
+  RwwhwAuditLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/rwwhw/audit
+      RetentionInDays: !Ref RetentionDays
+      Tags:
+        - Key: RWWHW
+          Value: Evidence
+        - Key: Framework
+          Value: Compliance
+
+  # ═══════════════════════════════════════════════════════════
+  # IAM Roles
+  # ═══════════════════════════════════════════════════════════
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${RegistryName}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Tags:
+        - Key: Framework
+          Value: RWWHW
+
+  LambdaBedrockPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${RegistryName}-lambda-bedrock-policy'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: BedrockAgentCoreAccess
+            Effect: Allow
+            Action:
+              - bedrock:GetAgent
+              - bedrock:ListAgents
+              - bedrock:UpdateAgent
+              - bedrock:InvokeAgent
+              - bedrock-agentcore:GetRegistryRecord
+              - bedrock-agentcore:ListRegistryRecords
+              - bedrock-agentcore:SearchRegistry
+              - bedrock-agentcore-runtime:GetAgentMemory
+              - bedrock-agentcore-runtime:ListAgentMemory
+            Resource: '*'
+          - Sid: BedrockGuardrailsAccess
+            Effect: Allow
+            Action:
+              - bedrock:GetGuardrail
+              - bedrock:ListGuardrails
+              - bedrock:GetGuardrailVersion
+            Resource: '*'
+          - Sid: CloudWatchMetrics
+            Effect: Allow
+            Action:
+              - cloudwatch:GetMetricStatistics
+              - cloudwatch:PutMetricData
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:FilterLogEvents
+            Resource: '*'
+          - Sid: S3EvidenceAccess
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:GetObjectAttributes
+            Resource: !Sub '${EvidenceBucket.Arn}/*'
+          - Sid: SNSNotifications
+            Effect: Allow
+            Action:
+              - sns:Publish
+            Resource:
+              - !Ref IncidentAlertsTopic
+              - !Ref CROAlertsTopic
+              - !Ref RiskTeamAlertsTopic
+      Roles:
+        - !Ref LambdaRole
+
+  StepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${RegistryName}-stepfunctions-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: Framework
+          Value: RWWHW
+
+  StepFunctionsPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${RegistryName}-stepfunctions-policy'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - lambda:InvokeFunction
+              - sns:Publish
+            Resource: '*'
+      Roles:
+        - !Ref StepFunctionsRole
+
+  # ═══════════════════════════════════════════════════════════
+  # Lambda Functions (inline code for one-click deploy)
+  # ═══════════════════════════════════════════════════════════
+  CircuitBreakerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${RegistryName}-circuit-breaker'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          ERROR_THRESHOLD: '0.1'
+          LATENCY_THRESHOLD: '3000'
+          NOTIFICATION_TOPIC: !Ref IncidentAlertsTopic
+          REGISTRY_NAME: !Ref RegistryName
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          from datetime import datetime, timedelta
+
+          def handler(event, context):
+              cloudwatch = boto3.client('cloudwatch')
+              sns = boto3.client('sns')
+              bedrock_agent = boto3.client('bedrock-agent')
+              bedrock_agentcore = boto3.client('bedrock-agentcore')
+              
+              notification_topic = os.environ.get('NOTIFICATION_TOPIC')
+              registry_name = os.environ.get('REGISTRY_NAME', 'rwwhw-ai-governance')
+              
+              agent_id = event.get('agent_id')
+              agent_name = event.get('agent_name', agent_id)
+              check_only = event.get('check_only', False)
+              
+              error_threshold = float(os.environ.get('ERROR_THRESHOLD', '0.1'))
+              latency_threshold = float(os.environ.get('LATENCY_THRESHOLD', '3000'))
+              
+              if not agent_id:
+                  return {'statusCode': 400, 'body': json.dumps({'error': 'agent_id required'})}
+              
+              end_time = datetime.utcnow()
+              start_time = end_time - timedelta(minutes=5)
+              
+              # Query metrics
+              metrics = {'error_rate': 0.0, 'latency_avg': 0.0, 'latency_p99': 0.0}
+              
+              try:
+                  error_response = cloudwatch.get_metric_statistics(
+                      Namespace='AWS/Bedrock',
+                      MetricName='InvocationErrors',
+                      Dimensions=[{'Name': 'AgentId', 'Value': agent_id}],
+                      StartTime=start_time, EndTime=end_time, Period=60, Statistics=['Average']
+                  )
+                  error_datapoints = error_response.get('Datapoints', [])
+                  if error_datapoints:
+                      metrics['error_rate'] = error_datapoints[0].get('Average', 0)
+              except Exception as e:
+                  print(f"Metrics error: {e}")
+              
+              # Circuit breaker logic
+              circuit_open = False
+              stop_reason = None
+              severity = None
+              
+              if metrics['error_rate'] > error_threshold:
+                  severity = 'HIGH'
+                  circuit_open = True
+                  stop_reason = f"threshold_exceeded: errors={metrics['error_rate']:.2%}"
+              
+              if check_only:
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps({
+                          'circuit_status': 'OPEN' if circuit_open else 'CLOSED',
+                          'severity': severity,
+                          'agent_id': agent_id,
+                          'metrics': metrics,
+                          'check_only': True
+                      })
+                  }
+              
+              if circuit_open:
+                  try:
+                      bedrock_agent.update_agent(agentId=agent_id, agentStatus='DISABLED')
+                      action = 'AGENT_DISABLED'
+                  except Exception as e:
+                      action = f'DISABLE_FAILED: {str(e)}'
+                  
+                  if notification_topic:
+                      sns.publish(
+                          TopicArn=notification_topic,
+                          Message=json.dumps({
+                              'alert_type': 'CIRCUIT_BREAKER',
+                              'severity': severity,
+                              'agent_id': agent_id,
+                              'stop_reason': stop_reason,
+                              'action': action
+                          }),
+                          Subject=f'[{severity}] CIRCUIT BREAKER: {agent_name}'
+                      )
+                  
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps({
+                          'circuit_status': 'OPEN',
+                          'severity': severity,
+                          'agent_id': agent_id,
+                          'action': action,
+                          'metrics': metrics
+                      })
+                  }
+              
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps({
+                      'circuit_status': 'CLOSED',
+                      'agent_id': agent_id,
+                      'metrics': metrics
+                  })
+              }
+      Tags:
+        - Key: RWWHW
+          Value: How
+        - Key: Framework
+          Value: Resilience
+
+  EvidenceGeneratorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${RegistryName}-evidence-generator'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 60
+      Environment:
+        Variables:
+          EVIDENCE_BUCKET: !Ref EvidenceBucket
+          REGISTRY_NAME: !Ref RegistryName
+          LOG_GROUP_MEMORY: /aws/bedrock/agentcore/sessions
+          LOG_GROUP_GUARD: /aws/bedrock/guardrails
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import hashlib
+          import os
+          from datetime import datetime, timedelta
+
+          def handler(event, context):
+              incident_id = event.get('incident_id')
+              session_id = event.get('session_id')
+              agent_id = event.get('agent_id')
+              agent_name = event.get('agent_name', agent_id)
+              
+              bedrock_runtime = boto3.client('bedrock-agent-runtime')
+              bedrock_agentcore = boto3.client('bedrock-agentcore')
+              s3 = boto3.client('s3')
+              
+              evidence_bucket = os.environ.get('EVIDENCE_BUCKET')
+              registry_name = os.environ.get('REGISTRY_NAME')
+              
+              evidence_package = {
+                  'rwwhw_framework_version': '2.0.0',
+                  'incident_id': incident_id,
+                  'generated_at': datetime.utcnow().isoformat(),
+                  'what': {},
+                  'who': {},
+                  'how': {},
+                  'integrity': {}
+              }
+              
+              # RWWHW #1: What
+              try:
+                  memory = bedrock_runtime.get_agent_memory(agentId=agent_id, memoryId=session_id)
+                  evidence_package['what'] = {
+                      'source': 'Bedrock AgentCore Memory',
+                      'goal': memory.get('memory', {}).get('sessionGoal', 'N/A')
+                  }
+              except Exception as e:
+                  evidence_package['what'] = {'error': str(e)}
+              
+              # RWWHW #2: Who
+              try:
+                  record = bedrock_agentcore.get_registry_record(
+                      registryName=registry_name,
+                      recordId=f"{agent_name}-v1"
+                  )
+                  metadata = record.get('record', {}).get('metadata', {})
+                  evidence_package['who'] = {
+                      'source': 'AWS Agent Registry',
+                      'technical_owner': metadata.get('technicalOwner'),
+                      'business_owner': metadata.get('businessOwner'),
+                      'risk_owner': metadata.get('riskOwner')
+                  }
+              except Exception as e:
+                  evidence_package['who'] = {'error': str(e)}
+              
+              # Calculate hash
+              evidence_json = json.dumps(evidence_package, sort_keys=True, default=str)
+              evidence_hash = hashlib.sha256(evidence_json.encode()).hexdigest()
+              evidence_package['integrity'] = {
+                  'sha256_hash': evidence_hash,
+                  'algorithm': 'SHA256'
+              }
+              
+              # Store in S3
+              if evidence_bucket:
+                  key = f"evidence/{datetime.utcnow().strftime('%Y/%m/%d')}/{incident_id}/rwwhw-evidence.json"
+                  s3.put_object(
+                      Bucket=evidence_bucket,
+                      Key=key,
+                      Body=json.dumps(evidence_package, indent=2, default=str),
+                      ContentType='application/json',
+                      Metadata={'incident-id': incident_id, 'rwwhw-framework': 'true'}
+                  )
+                  evidence_location = f"s3://{evidence_bucket}/{key}"
+              else:
+                  evidence_location = "ERROR: Bucket not configured"
+              
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps({
+                      'message': 'RWWHW evidence generated',
+                      'incident_id': incident_id,
+                      'evidence_location': evidence_location,
+                      'integrity_hash': evidence_hash
+                  })
+              }
+      Tags:
+        - Key: RWWHW
+          Value: Evidence
+        - Key: Framework
+          Value: Compliance
+
+  # ═══════════════════════════════════════════════════════════
+  # SNS Topics
+  # ═══════════════════════════════════════════════════════════
+  IncidentAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${RegistryName}-incident-alerts'
+      Tags:
+        - Key: RWWHW
+          Value: How
+
+  CROAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${RegistryName}-cro-alerts'
+      Tags:
+        - Key: RWWHW
+          Value: Who
+
+  RiskTeamAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${RegistryName}-risk-team-alerts'
+      Tags:
+        - Key: RWWHW
+          Value: Who
+
+  # ═══════════════════════════════════════════════════════════
+  # Step Functions State Machine
+  # ═══════════════════════════════════════════════════════════
+  HumanReviewStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${RegistryName}-human-review'
+      RoleArn: !GetAtt StepFunctionsRole.Arn
+      Definition:
+        Comment: RWWHW Human Review Workflow for Bedrock AgentCore
+        StartAt: AssessSeverity
+        States:
+          AssessSeverity:
+            Type: Task
+            Resource: !GetAtt EvidenceGeneratorFunction.Arn
+            Next: RouteBySeverity
+          RouteBySeverity:
+            Type: Choice
+            Choices:
+              - Variable: $.severity
+                StringEquals: CRITICAL
+                Next: ImmediateEscalation
+              - Variable: $.severity
+                StringEquals: HIGH
+                Next: CROReview
+              - Variable: $.severity
+                StringEquals: MEDIUM
+                Next: RiskTeamReview
+            Default: GenerateEvidence
+          ImmediateEscalation:
+            Type: Task
+            Resource: arn:aws:states:::sns:publish
+            Parameters:
+              TopicArn: !Ref IncidentAlertsTopic
+              Message:
+                alert_type: CRITICAL
+                message: Bedrock AgentCore incident requires immediate attention
+            Next: GenerateEvidence
+          CROReview:
+            Type: Task
+            Resource: arn:aws:states:::sns:publish
+            Parameters:
+              TopicArn: !Ref CROAlertsTopic
+              Message:
+                alert_type: HIGH
+                message: Bedrock AgentCore incident requires CRO review
+            Next: GenerateEvidence
+          RiskTeamReview:
+            Type: Task
+            Resource: arn:aws:states:::sns:publish
+            Parameters:
+              TopicArn: !Ref RiskTeamAlertsTopic
+              Message:
+                alert_type: MEDIUM
+                message: Bedrock AgentCore incident requires risk team review
+            Next: GenerateEvidence
+          GenerateEvidence:
+            Type: Task
+            Resource: !GetAtt EvidenceGeneratorFunction.Arn
+            End: true
+      Tags:
+        - Key: RWWHW
+          Value: How
+        - Key: Framework
+          Value: Governance
+
+  # ═══════════════════════════════════════════════════════════
+  # EventBridge Rules
+  # ═══════════════════════════════════════════════════════════
+  GuardrailBlockRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${RegistryName}-guardrail-block'
+      Description: Trigger on Bedrock Guardrail blocks
+      EventPattern:
+        source:
+          - aws.bedrock
+        detail-type:
+          - Guardrail Intercepted
+      Targets:
+        - Arn: !Ref IncidentAlertsTopic
+          Id: GuardrailToSNS
+
+  # ═══════════════════════════════════════════════════════════
+  # CloudWatch Dashboard (conditional)
+  # ═══════════════════════════════════════════════════════════
+  GovernanceDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Condition: CreateDashboard
+    Properties:
+      DashboardName: !Sub '${RegistryName}-governance'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "text",
+              "x": 0,
+              "y": 0,
+              "width": 24,
+              "height": 1,
+              "properties": {
+                "markdown": "# RWWHW AI Governance for Bedrock AgentCore — Answer 4 Questions in 30 Seconds"
+              }
+            },
+            {
+              "type": "logQuery",
+              "x": 0,
+              "y": 1,
+              "width": 6,
+              "height": 6,
+              "properties": {
+                "title": "RWWHW #1: WHAT — Bedrock AgentCore Memory",
+                "query": "SOURCE '/aws/bedrock/agentcore/sessions' | fields @timestamp, agent_id, session_goal | sort @timestamp desc | limit 10",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "logQuery",
+              "x": 6,
+              "y": 1,
+              "width": 6,
+              "height": 6,
+              "properties": {
+                "title": "RWWHW #2: WHO — Guardrails & Registry",
+                "query": "SOURCE '/aws/bedrock/guardrails' | fields @timestamp, guardrail_id, rule_triggered | filter action == 'BLOCKED' | sort @timestamp desc | limit 10",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 1,
+              "width": 6,
+              "height": 6,
+              "properties": {
+                "title": "RWWHW #3: HOW — AgentCore Runtime",
+                "metrics": [
+                  ["AWS/Bedrock", "InvocationErrors", "AgentId", "*", {"stat": "Sum"}]
+                ],
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 18,
+              "y": 1,
+              "width": 6,
+              "height": 6,
+              "properties": {
+                "title": "RWWHW #4: EVIDENCE — S3",
+                "metrics": [
+                  ["AWS/S3", "NumberOfObjects", "BucketName", "${EvidenceBucket}"]
+                ],
+                "region": "${AWS::Region}"
+              }
+            }
+          ]
+        }
+
+Conditions:
+  CreateDashboard: !Equals [!Ref EnableDashboard, 'true']
+
+Outputs:
+  EvidenceBucket:
+    Description: S3 bucket for RWWHW evidence (7-year Object Lock retention)
+    Value: !Ref EvidenceBucket
+    Export:
+      Name: !Sub '${RegistryName}-EvidenceBucket'
+
+  DashboardUrl:
+    Description: CloudWatch Dashboard URL for 30-second incident response
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${GovernanceDashboard}'
+    Condition: CreateDashboard
+
+  CircuitBreakerLambda:
+    Description: Lambda function for Bedrock AgentCore circuit breaking
+    Value: !Ref CircuitBreakerFunction
+
+  EvidenceGeneratorLambda:
+    Description: Lambda function for evidence generation
+    Value: !Ref EvidenceGeneratorFunction
+
+  StepFunctionsArn:
+    Description: Step Functions workflow ARN for human review
+    Value: !Ref HumanReviewStateMachine
+
+  RegistryName:
+    Description: AWS Agent Registry name for agent registration
+    Value: !Ref RegistryName
+
+  DeployCommand:
+    Description: Example command to register an agent
+    Value: !Sub |
+      python scripts/register_agent.py \\
+        --agent-name my-agent \\
+        --technical-owner 'team@company.com' \\
+        --business-owner 'business@company.com' \\
+        --risk-owner 'cro@company.com'
+
+  Documentation:
+    Description: Full documentation
+    Value: https://github.com/kdeath83/rwwhw-ai-governance

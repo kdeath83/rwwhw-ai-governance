@@ -4,6 +4,45 @@
 
 A production-ready AI governance solution **native to AWS Bedrock AgentCore**. Answers all four questions in 30 seconds during an AI incident by leveraging the actual Bedrock AgentCore services — Registry, Memory, Runtime, and Guardrails.
 
+## 🚀 One-Click Deploy
+
+Deploy the full governance layer in ~5 minutes:
+
+### Option 1: CloudFormation Console (Easiest)
+
+[![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=https://raw.githubusercontent.com/kdeath83/rwwhw-ai-governance/main/cloudformation/rwwhw-template.yaml&stackName=rwwhw-ai-governance)
+
+**Steps:**
+1. Click "Launch Stack" button above ☝️
+2. Sign in to AWS Console
+3. Review parameters (Registry name, retention days)
+4. Check "I acknowledge..." for IAM resources
+5. Click **Create stack**
+6. Wait ~3 minutes for deployment
+
+### Option 2: AWS CLI (Script)
+
+```bash
+# Clone repo
+git clone https://github.com/kdeath83/rwwhw-ai-governance.git
+cd rwwhw-ai-governance
+
+# One-click deploy
+./deploy.sh
+
+# Or with custom options:
+./deploy.sh --region ap-southeast-2 --stack-name my-governance
+```
+
+**Windows (PowerShell):**
+```powershell
+.\deploy.ps1 -Region ap-southeast-2
+```
+
+### Option 3: Terraform / CDK
+
+See [Infrastructure Options](#infrastructure-options) below for Terraform/CDK deployment.
+
 ## Prerequisites
 
 - AWS Account with Bedrock AgentCore access (see [enrollment](#enrollment))
